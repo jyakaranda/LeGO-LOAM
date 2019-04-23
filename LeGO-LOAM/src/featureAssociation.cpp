@@ -32,7 +32,7 @@
 //   T. Shan and B. Englot. LeGO-LOAM: Lightweight and Ground-Optimized Lidar Odometry and Mapping on Variable Terrain
 //      IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). October 2018.
 
-#include "utility.h"
+#include "lego/utility.h"
 
 class FeatureAssociation{
 

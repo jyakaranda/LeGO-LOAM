@@ -31,7 +31,7 @@
 //     Robotics: Science and Systems Conference (RSS). Berkeley, CA, July 2014.
 //   T. Shan and B. Englot. LeGO-LOAM: Lightweight and Ground-Optimized Lidar Odometry and Mapping on Variable Terrain
 //      IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). October 2018.
-#include "utility.h"
+#include "lego/utility.h"
 
 #include <gtsam/geometry/Rot3.h>
 #include <gtsam/geometry/Pose3.h>
