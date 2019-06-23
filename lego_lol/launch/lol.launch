@@ -1,0 +1,26 @@
+<launch>
+  <param name="/use_sim_time" value="true" />
+  <rosparam file="$(find lego_lol)/params/global.yaml" command="load" />
+
+  <include file="$(find common)/launch/static_tf.launch" />
+
+  <include file="$(find odom_imu)/launch/odom_imu.launch" />
+
+  <node pkg="lego_lol" type="lol_IP" name="imageProjection">
+  </node>
+
+  <node pkg="lego_lol" type="lol_FE" name="featureExtraction">
+  </node>
+
+  <node pkg="lego_lol" type="lol" name="lol" output="screen">
+    <remap from="/corner" to="/laser_cloud_less_sharp" />
+    <remap from="/surf" to="/laser_cloud_less_flat" />
+    <remap from="/outlier" to="/laser_cloud_outlier" />
+    <remap from="/odom" to="/odom/imu" />
+    <rosparam file="$(find lego_lol)/params/test.yaml" command="load" />
+    <param name="fn_poses" value="$(find bag_file)/pcd/keypose_tf.pcd" />
+    <param name="fn_corner" value="$(find bag_file)/pcd/corner_tf.pcd" />
+    <param name="fn_surf" value="$(find bag_file)/pcd/surf_tf.pcd" />
+    <param name="fn_outlier" value="$(find bag_file)/pcd/outlier_tf.pcd" />
+  </node>
+</launch>
