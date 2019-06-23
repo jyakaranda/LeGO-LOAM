@@ -77,13 +77,13 @@ extern const int groundScanInd = 7;
 extern const bool loopClosureEnableFlag = true;
 extern const double mappingProcessInterval = 0.3;
 
-extern const float scanPeriod = 0.2;
+extern const float scanPeriod = 0.2;    // 5Hz: 0.2, 10Hz: 0.1
 extern const int systemDelay = 0;
 extern const int imuQueLength = 200;
 extern const string imuTopic = "/imu/data";
 
 
-extern const float sensorMountAngle = 0.0;
+extern const float sensorMountAngle = 0.0;      // 用来判断点云角度的，进而对地面点云进行分类
 extern const float segmentTheta = 1.0472;
 extern const int segmentValidPointNum = 5;
 extern const int segmentValidLineNum = 3;
@@ -101,9 +101,9 @@ extern const float nearestFeatureSearchSqDist = 25;
 extern const float surroundingKeyframeSearchRadius = 50.0;
 extern const int   surroundingKeyframeSearchNum = 50;
 
-extern const float historyKeyframeSearchRadius = 5.0;
+extern const float historyKeyframeSearchRadius = 20.0;
 extern const int   historyKeyframeSearchNum = 25;
-extern const float historyKeyframeFitnessScore = 0.3;
+extern const float historyKeyframeFitnessScore = 0.5;
 
 extern const float globalMapVisualizationSearchRadius = 500.0;
 

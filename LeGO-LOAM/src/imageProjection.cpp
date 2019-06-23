@@ -100,6 +100,7 @@ public:
         resetParameters();
     }
 
+    // 初始化
     void allocateMemory(){
 
         laserCloudIn.reset(new pcl::PointCloud<PointType>());
@@ -135,6 +136,7 @@ public:
         queueIndY = new uint16_t[N_SCAN*Horizon_SCAN];
     }
 
+    // 初始化
     void resetParameters(){
         laserCloudIn->clear();
         groundCloud->clear();
@@ -172,8 +174,10 @@ public:
 
     void findStartEndAngle(){
         segMsg.startOrientation = -atan2(laserCloudIn->points[0].y, laserCloudIn->points[0].x);
-        segMsg.endOrientation   = -atan2(laserCloudIn->points[laserCloudIn->points.size() - 1].y,
-                                                     laserCloudIn->points[laserCloudIn->points.size() - 2].x) + 2 * M_PI;
+        // segMsg.endOrientation   = -atan2(laserCloudIn->points[laserCloudIn->points.size() - 1].y,
+        //                                              laserCloudIn->points[laserCloudIn->points.size() - 2].x) + 2 * M_PI;
+        // 为啥是 laserCloudIn->points.size()-2
+        segMsg.endOrientation = -atan2(laserCloudIn->points[laserCloudIn->points.size()-1].y, laserCloudIn->points[laserCloudIn->points.size()-1].x) + 2*M_PI;
         if (segMsg.endOrientation - segMsg.startOrientation > 3 * M_PI) {
             segMsg.endOrientation -= 2 * M_PI;
         } else if (segMsg.endOrientation - segMsg.startOrientation < M_PI)
@@ -181,26 +185,32 @@ public:
         segMsg.orientationDiff = segMsg.endOrientation - segMsg.startOrientation;
     }
 
+    // 计算 laserCloudIn 在 rangeMat 中 index，并将距离填充到 rangeMat 中准备 filter
     void projectPointCloud(){
         float verticalAngle, horizonAngle, range;
+        float horizonRadius;
         size_t rowIdn, columnIdn, index, cloudSize; 
-        PointType thisPoint;
+        // PointType thisPoint;
 
         cloudSize = laserCloudIn->points.size();
 
         for (size_t i = 0; i < cloudSize; ++i){
+            PointType& thisPoint = laserCloudIn->points[i];
+            // thisPoint.x = laserCloudIn->points[i].x;
+            // thisPoint.y = laserCloudIn->points[i].y;
+            // thisPoint.z = laserCloudIn->points[i].z;
 
-            thisPoint.x = laserCloudIn->points[i].x;
-            thisPoint.y = laserCloudIn->points[i].y;
-            thisPoint.z = laserCloudIn->points[i].z;
-
-            verticalAngle = atan2(thisPoint.z, sqrt(thisPoint.x * thisPoint.x + thisPoint.y * thisPoint.y)) * 180 / M_PI;
+            horizonRadius = hypotf(thisPoint.x, thisPoint.y);
+            verticalAngle = atan2(thisPoint.z, horizonRadius) * 180 / M_PI;
             rowIdn = (verticalAngle + ang_bottom) / ang_res_y;
-            if (rowIdn < 0 || rowIdn >= N_SCAN)
+            if (rowIdn < 0 || rowIdn >= N_SCAN){
+                ROS_WARN("Error in computing rowIdn");
                 continue;
+            }
 
             horizonAngle = atan2(thisPoint.x, thisPoint.y) * 180 / M_PI;
 
+            // columnIdn 从 x 负轴逆时针增加到 Horizon_SCAN
             columnIdn = -round((horizonAngle-90.0)/ang_res_x) + Horizon_SCAN/2;
             if (columnIdn >= Horizon_SCAN)
                 columnIdn -= Horizon_SCAN;
@@ -208,9 +218,11 @@ public:
             if (columnIdn < 0 || columnIdn >= Horizon_SCAN)
                 continue;
 
-            range = sqrt(thisPoint.x * thisPoint.x + thisPoint.y * thisPoint.y + thisPoint.z * thisPoint.z);
+            // range = sqrt(thisPoint.x * thisPoint.x + thisPoint.y * thisPoint.y + thisPoint.z * thisPoint.z);
+            range = hypotf(horizonRadius, thisPoint.z);
             rangeMat.at<float>(rowIdn, columnIdn) = range;
 
+            // 用来编码在 rangeMat 中的 id
             thisPoint.intensity = (float)rowIdn + (float)columnIdn / 10000.0;
 
             index = columnIdn  + rowIdn * Horizon_SCAN;
@@ -220,7 +232,7 @@ public:
         }
     }
 
-
+    // 直接判断与近邻 scan 上的点的竖直夹角，对地面点云进行二分类
     void groundRemoval(){
         size_t lowerInd, upperInd;
         float diffX, diffY, diffZ, angle;
@@ -231,6 +243,7 @@ public:
                 lowerInd = j + ( i )*Horizon_SCAN;
                 upperInd = j + (i+1)*Horizon_SCAN;
 
+                // TODO: ? 上面没有点也设为 -1？
                 if (fullCloud->points[lowerInd].intensity == -1 ||
                     fullCloud->points[upperInd].intensity == -1){
                     groundMat.at<int8_t>(i,j) = -1;
@@ -241,8 +254,10 @@ public:
                 diffY = fullCloud->points[upperInd].y - fullCloud->points[lowerInd].y;
                 diffZ = fullCloud->points[upperInd].z - fullCloud->points[lowerInd].z;
 
-                angle = atan2(diffZ, sqrt(diffX*diffX + diffY*diffY) ) * 180 / M_PI;
+                // angle = atan2(diffZ, sqrt(diffX*diffX + diffY*diffY) ) * 180 / M_PI;
+                angle = atan2(diffZ, hypotf(diffX, diffY)) * 180 / M_PI;
 
+                // 这个地面点云分类有点太简单了，直接判断与近邻 scan 上的点的竖直夹角，比 plane_fit_ground_filter 还简单
                 if (abs(angle - sensorMountAngle) <= 10){
                     groundMat.at<int8_t>(i,j) = 1;
                     groundMat.at<int8_t>(i+1,j) = 1;
@@ -252,6 +267,7 @@ public:
 
         for (size_t i = 0; i < N_SCAN; ++i){
             for (size_t j = 0; j < Horizon_SCAN; ++j){
+                // groundMat == -1 的呢？
                 if (groundMat.at<int8_t>(i,j) == 1 || rangeMat.at<float>(i,j) == FLT_MAX){
                     labelMat.at<int>(i,j) = -1;
                 }
@@ -279,6 +295,7 @@ public:
             segMsg.startRingIndex[i] = sizeOfSegCloud-1 + 5;
 
             for (size_t j = 0; j < Horizon_SCAN; ++j) {
+                // 分割点云或地面点云
                 if (labelMat.at<int>(i,j) > 0 || groundMat.at<int8_t>(i,j) == 1){
                     if (labelMat.at<int>(i,j) == 999999){
                         if (i > groundScanInd && j % 5 == 0){
@@ -288,6 +305,7 @@ public:
                             continue;
                         }
                     }
+                    // TODO: 地面点只有 index 整除 5 时才加入到 segMsg，不太懂什么意思
                     if (groundMat.at<int8_t>(i,j) == 1){
                         if (j%5!=0 && j>5 && j<Horizon_SCAN-5)
                             continue;
@@ -315,6 +333,7 @@ public:
         }
     }
 
+    // 对非地面点云附近的连通点云进行标记，一个连通点云一个 label
     void labelComponents(int row, int col){
         float d1, d2, alpha, angle;
         int fromIndX, fromIndY, thisIndX, thisIndY; 
@@ -399,6 +418,7 @@ public:
             ++labelCount;
         }else{
             for (size_t i = 0; i < allPushedIndSize; ++i){
+                // 标记为噪点
                 labelMat.at<int>(allPushedIndX[i], allPushedIndY[i]) = 999999;
             }
         }

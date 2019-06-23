@@ -49,6 +49,7 @@ private:
     ros::Publisher pubCornerPointsLessSharp;
     ros::Publisher pubSurfPointsFlat;
     ros::Publisher pubSurfPointsLessFlat;
+    ros::Publisher pub_tmp;
 
     pcl::PointCloud<PointType>::Ptr segmentedCloud;
     pcl::PointCloud<PointType>::Ptr outlierCloud;
@@ -58,6 +59,7 @@ private:
     pcl::PointCloud<PointType>::Ptr surfPointsFlat;
     pcl::PointCloud<PointType>::Ptr surfPointsLessFlat;
 
+    // TODO: 为啥要对这个进行滤波
     pcl::PointCloud<PointType>::Ptr surfPointsLessFlatScan;
     pcl::PointCloud<PointType>::Ptr surfPointsLessFlatScanDS;
 
@@ -79,7 +81,7 @@ private:
     bool systemInited;
 
     std::vector<smoothness_t> cloudSmoothness;
-    float cloudCurvature[N_SCAN*Horizon_SCAN];
+    // float cloudCurvature[N_SCAN*Horizon_SCAN];
     int cloudNeighborPicked[N_SCAN*Horizon_SCAN];
     int cloudLabel[N_SCAN*Horizon_SCAN];
 
@@ -201,6 +203,7 @@ public:
         pubLaserCloudSurfLast = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_surf_last", 2);
         pubOutlierCloudLast = nh.advertise<sensor_msgs::PointCloud2>("/outlier_cloud_last", 2);
         pubLaserOdometry = nh.advertise<nav_msgs::Odometry> ("/laser_odom_to_init", 5);
+        pub_tmp = nh.advertise<geometry_msgs::PoseStamped>("/transform_cur", 1);
         
         initializationValue();
     }
@@ -210,6 +213,7 @@ public:
         cloudSmoothness.resize(N_SCAN*Horizon_SCAN);
 
         downSizeFilter.setLeafSize(0.2, 0.2, 0.2);
+        // downSizeFilter.setLeafSize(0.1, 0.1, 0.1);
 
         segmentedCloud.reset(new pcl::PointCloud<PointType>());
         outlierCloud.reset(new pcl::PointCloud<PointType>());
@@ -310,28 +314,43 @@ public:
         sinImuYawStart = sin(imuYawStart);
     }
 
-
+    // 好像忘了调用了（有人在 issue 里面提了，作者说开启这个漂移会很严重）
     void ShiftToStartIMU(float pointTime)
     {
+        // TODO: 为什么还要减去 velo*time 呢？
+        // 因为论文里是假设匀速运动的，通过加速度与匀速的差异去除运动畸变
         imuShiftFromStartXCur = imuShiftXCur - imuShiftXStart - imuVeloXStart * pointTime;
         imuShiftFromStartYCur = imuShiftYCur - imuShiftYStart - imuVeloYStart * pointTime;
         imuShiftFromStartZCur = imuShiftZCur - imuShiftZStart - imuVeloZStart * pointTime;
 
-        float x1 = cosImuYawStart * imuShiftFromStartXCur - sinImuYawStart * imuShiftFromStartZCur;
-        float y1 = imuShiftFromStartYCur;
-        float z1 = sinImuYawStart * imuShiftFromStartXCur + cosImuYawStart * imuShiftFromStartZCur;
+        // rotateZXY(roll, pitch, yaw);
+        // 转换到 O 坐标系下旋转在转换到 L 坐标系下
+        Eigen::Vector3f diff_o(imuShiftZCur - imuShiftZStart, imuShiftXCur - imuShiftXStart, imuShiftYCur - imuShiftYStart);
+        // 注意这里的旋转是从 W 转到 O 中，所以要对旋转矩阵取逆，也就是对欧拉角取反并从按 XYZ 旋转
+        float x1 = cosImuYawStart * diff_o(0) + sinImuYawStart * diff_o(1);
+        float y1 = -sinImuYawStart * diff_o(0) + cosImuYawStart * diff_o(1);
+        float z1 = diff_o(2);
 
-        float x2 = x1;
-        float y2 = cosImuPitchStart * y1 + sinImuPitchStart * z1;
-        float z2 = -sinImuPitchStart * y1 + cosImuPitchStart * z1;
+        float x2 = cosImuPitchStart * x1 - sinImuPitchStart * z1;
+        float y2 = y1;
+        float z2 = +sinImuPitchStart * x1 + cosImuPitchStart * z1;
 
-        imuShiftFromStartXCur = cosImuRollStart * x2 + sinImuRollStart * y2;
-        imuShiftFromStartYCur = -sinImuRollStart * x2 + cosImuRollStart * y2;
-        imuShiftFromStartZCur = z2;
+        // float x3 = x2;
+        // float y3 = cosImuRollStart * y2 + sinImuRollStart * z2;
+        // float z3 = -sinImuRollStart * y2 + cosImuRollStart * z2;
+        // 转换回 L 坐标系
+        // imuShiftFromStartXCur = y3;
+        // imuShiftFromStartYCur = z3;
+        // imuShiftFromStartZCur = x3;
+
+        imuShiftFromStartXCur = cosImuRollStart * y2 + sinImuRollStart * z2;
+        imuShiftFromStartYCur = -sinImuRollStart * y2 + cosImuRollStart * z2;
+        imuShiftFromStartZCur = x2;
     }
 
     void VeloToStartIMU()
     {
+        // 与 ShiftToStartIMU 类似，这里就先不改了
         imuVeloFromStartXCur = imuVeloXCur - imuVeloXStart;
         imuVeloFromStartYCur = imuVeloYCur - imuVeloYStart;
         imuVeloFromStartZCur = imuVeloZCur - imuVeloZStart;
@@ -351,6 +370,8 @@ public:
 
     void TransformToStartIMU(PointType *p)
     {
+        // rotate point to global IMU system
+        // 还是注意这里的旋转是 O 坐标系，p 是 L 坐标系下的
         float x1 = cos(imuRollCur) * p->x - sin(imuRollCur) * p->y;
         float y1 = sin(imuRollCur) * p->x + cos(imuRollCur) * p->y;
         float z1 = p->z;
@@ -363,6 +384,7 @@ public:
         float y3 = y2;
         float z3 = -sin(imuYawCur) * x2 + cos(imuYawCur) * z2;
 
+        // rotate point back to local IMU system relative to the start IMU state
         float x4 = cosImuYawStart * x3 - sinImuYawStart * z3;
         float y4 = y3;
         float z4 = sinImuYawStart * x3 + cosImuYawStart * z3;
@@ -378,24 +400,28 @@ public:
 
     void AccumulateIMUShiftAndRotation()
     {
-        float roll = imuRoll[imuPointerLast];
-        float pitch = imuPitch[imuPointerLast];
-        float yaw = imuYaw[imuPointerLast];
-        float accX = imuAccX[imuPointerLast];
-        float accY = imuAccY[imuPointerLast];
-        float accZ = imuAccZ[imuPointerLast];
 
-        float x1 = cos(roll) * accX - sin(roll) * accY;
-        float y1 = sin(roll) * accX + cos(roll) * accY;
-        float z1 = accZ;
+        // 转换到 O 坐标系下旋转再转换到 L 坐标系
+        Eigen::Vector3f acc_o(imuAccZ[imuPointerLast], imuAccX[imuPointerLast], imuAccY[imuPointerLast]);
+        Eigen::AngleAxisf rx(imuRoll[imuPointerLast], Eigen::Vector3f::UnitX());
+        Eigen::AngleAxisf ry(imuPitch[imuPointerLast], Eigen::Vector3f::UnitY());
+        Eigen::AngleAxisf rz(imuYaw[imuPointerLast], Eigen::Vector3f::UnitZ());
+        Eigen::Vector3f acc_wo = rz * ry * rx * acc_o;
+        float accX = acc_wo(1);
+        float accY = acc_wo(2);
+        float accZ = acc_wo(0);
 
-        float x2 = x1;
-        float y2 = cos(pitch) * y1 - sin(pitch) * z1;
-        float z2 = sin(pitch) * y1 + cos(pitch) * z1;
+        // float x1 = cos(roll) * accX - sin(roll) * accY;
+        // float y1 = sin(roll) * accX + cos(roll) * accY;
+        // float z1 = accZ;
 
-        accX = cos(yaw) * x2 + sin(yaw) * z2;
-        accY = y2;
-        accZ = -sin(yaw) * x2 + cos(yaw) * z2;
+        // float x2 = x1;
+        // float y2 = cos(pitch) * y1 - sin(pitch) * z1;
+        // float z2 = sin(pitch) * y1 + cos(pitch) * z1;
+
+        // accX = cos(yaw) * x2 + sin(yaw) * z2;
+        // accY = y2;
+        // accZ = -sin(yaw) * x2 + cos(yaw) * z2;
 
         int imuPointerBack = (imuPointerLast + imuQueLength - 1) % imuQueLength;
         double timeDiff = imuTime[imuPointerLast] - imuTime[imuPointerBack];
@@ -484,6 +510,7 @@ public:
 
         for (int i = 0; i < cloudSize; i++) {
 
+            // 转换到 L 坐标系下
             point.x = segmentedCloud->points[i].y;
             point.y = segmentedCloud->points[i].z;
             point.z = segmentedCloud->points[i].x;
@@ -507,6 +534,7 @@ public:
             }
 
             float relTime = (ori - segInfo.startOrientation) / segInfo.orientationDiff;
+            // 编码 rangeMat 中的 index 和 scanPeriod
             point.intensity = int(segmentedCloud->points[i].intensity) + scanPeriod * relTime;
 
             if (imuPointerLast >= 0) {
@@ -520,6 +548,7 @@ public:
                 }
 
                 if (timeScanCur + pointTime > imuTime[imuPointerFront]) {
+                    // 最近时刻的数据
                     imuRollCur = imuRoll[imuPointerFront];
                     imuPitchCur = imuPitch[imuPointerFront];
                     imuYawCur = imuYaw[imuPointerFront];
@@ -535,11 +564,13 @@ public:
                     int imuPointerBack = (imuPointerFront + imuQueLength - 1) % imuQueLength;
                     float ratioFront = (timeScanCur + pointTime - imuTime[imuPointerBack]) 
                                                      / (imuTime[imuPointerFront] - imuTime[imuPointerBack]);
-                    float ratioBack = (imuTime[imuPointerFront] - timeScanCur - pointTime) 
-                                                    / (imuTime[imuPointerFront] - imuTime[imuPointerBack]);
+                    // float ratioBack = (imuTime[imuPointerFront] - timeScanCur - pointTime) 
+                    //                                 / (imuTime[imuPointerFront] - imuTime[imuPointerBack]);
+                    float ratioBack = 1.0 - ratioFront;
 
                     imuRollCur = imuRoll[imuPointerFront] * ratioFront + imuRoll[imuPointerBack] * ratioBack;
                     imuPitchCur = imuPitch[imuPointerFront] * ratioFront + imuPitch[imuPointerBack] * ratioBack;
+                    // TODO: 知其然
                     if (imuYaw[imuPointerFront] - imuYaw[imuPointerBack] > M_PI) {
                         imuYawCur = imuYaw[imuPointerFront] * ratioFront + (imuYaw[imuPointerBack] + 2 * M_PI) * ratioBack;
                     } else if (imuYaw[imuPointerFront] - imuYaw[imuPointerBack] < -M_PI) {
@@ -558,6 +589,7 @@ public:
                 }
 
                 if (i == 0) {
+                    // 起始时刻的位姿情况（相较于上一帧点云的起始时刻）
                     imuRollStart = imuRollCur;
                     imuPitchStart = imuPitchCur;
                     imuYawStart = imuYawCur;
@@ -595,6 +627,7 @@ public:
 
                     updateImuRollPitchYawStartSinCos();
                 } else {
+                    // shiftToStartIMU(pointTime);
                     VeloToStartIMU();
                     TransformToStartIMU(&point);
                 }
@@ -616,29 +649,41 @@ public:
                             + segInfo.segmentedCloudRange[i+1] + segInfo.segmentedCloudRange[i+2]
                             + segInfo.segmentedCloudRange[i+3] + segInfo.segmentedCloudRange[i+4]
                             + segInfo.segmentedCloudRange[i+5];            
-
-            cloudCurvature[i] = diffRange*diffRange;
+            // TODO: 为什么没有除以 10 和 Range[i] 消除 scale？
+            // 估计还是效果不好
+            // cloudCurvature[i] = diffRange*diffRange;
 
             cloudNeighborPicked[i] = 0;
             cloudLabel[i] = 0;
 
-            cloudSmoothness[i].value = cloudCurvature[i];
+            cloudSmoothness[i].value = diffRange*diffRange;
             cloudSmoothness[i].ind = i;
         }
     }
 
+    // TODO: 什么原理
     void markOccludedPoints()
     {
         int cloudSize = segmentedCloud->points.size();
 
+        for (int i = 0; i < 5; ++i){
+            cloudNeighborPicked[i] = 1;
+        }
+        for (int i = cloudSize - 6; i < cloudSize; ++i){
+            cloudNeighborPicked[i] = 1;
+        }
+
+        int occ1 = 0, occ2 = 0, occ3 = 0;
         for (int i = 5; i < cloudSize - 6; ++i){
 
             float depth1 = segInfo.segmentedCloudRange[i];
             float depth2 = segInfo.segmentedCloudRange[i+1];
             int columnDiff = std::abs(int(segInfo.segmentedCloudColInd[i+1] - segInfo.segmentedCloudColInd[i]));
 
+            // 保证属于同一个 scan 以及距离相近
             if (columnDiff < 10){
 
+                // 将被 occlude 的点（这里也就是更远的点）剔除掉
                 if (depth1 - depth2 > 0.3){
                     cloudNeighborPicked[i - 5] = 1;
                     cloudNeighborPicked[i - 4] = 1;
@@ -646,6 +691,8 @@ public:
                     cloudNeighborPicked[i - 2] = 1;
                     cloudNeighborPicked[i - 1] = 1;
                     cloudNeighborPicked[i] = 1;
+                    occ1 += 6;
+                    continue;
                 }else if (depth2 - depth1 > 0.3){
                     cloudNeighborPicked[i + 1] = 1;
                     cloudNeighborPicked[i + 2] = 1;
@@ -653,6 +700,7 @@ public:
                     cloudNeighborPicked[i + 4] = 1;
                     cloudNeighborPicked[i + 5] = 1;
                     cloudNeighborPicked[i + 6] = 1;
+                    occ2 += 6;
                 }
             }
 
@@ -660,10 +708,16 @@ public:
             float diff2 = std::abs(segInfo.segmentedCloudRange[i+1] - segInfo.segmentedCloudRange[i]);
 
             if (diff1 > 0.02 * segInfo.segmentedCloudRange[i] && diff2 > 0.02 * segInfo.segmentedCloudRange[i])
+            {
                 cloudNeighborPicked[i] = 1;
+                ++occ3;
+            }
         }
+        ROS_INFO("occ1: %d, occ2: %d, occ3: %d", occ1, occ2, occ3);
+        ROS_INFO("cloud_size: %d", cloudSize);
     }
 
+    // section 5.1 的选点标准提取特征（Low-drift and real-time loam）
     void extractFeatures()
     {
         cornerPointsSharp->clear();
@@ -671,28 +725,31 @@ public:
         surfPointsFlat->clear();
         surfPointsLessFlat->clear();
 
-        for (int i = 0; i < N_SCAN; i++) {
+        for (int i = 0; i < N_SCAN; ++i) {
 
             surfPointsLessFlatScan->clear();
 
-            for (int j = 0; j < 6; j++) {
+            int diffIndex = segInfo.endRingIndex[i] - segInfo.startRingIndex[i];
+            // 分为 6 个 region 提取特征
+            for (int j = 0; j < 6; ++j) {
 
-                int sp = (segInfo.startRingIndex[i] * (6 - j)    + segInfo.endRingIndex[i] * j) / 6;
-                int ep = (segInfo.startRingIndex[i] * (5 - j)    + segInfo.endRingIndex[i] * (j + 1)) / 6 - 1;
+                // int sp = (segInfo.startRingIndex[i] * (6 - j)    + segInfo.endRingIndex[i] * j) / 6;
+                // int ep = (segInfo.startRingIndex[i] * (5 - j)    + segInfo.endRingIndex[i] * (j + 1)) / 6 - 1;
+                int sp = segInfo.startRingIndex[i] + j * diffIndex / 6;
+                int ep = segInfo.startRingIndex[i] + (j + 1) * diffIndex / 6 - 1;
 
                 if (sp >= ep)
                     continue;
 
-                std::sort(cloudSmoothness.begin()+sp, cloudSmoothness.begin()+ep, by_value());
+                std::sort(cloudSmoothness.begin()+sp, cloudSmoothness.begin()+ep + 1, by_value());
 
                 int largestPickedNum = 0;
-                for (int k = ep; k >= sp; k--) {
+                for (int k = ep; k >= sp; --k) {
                     int ind = cloudSmoothness[k].ind;
                     if (cloudNeighborPicked[ind] == 0 &&
-                        cloudCurvature[ind] > edgeThreshold &&
+                        cloudSmoothness[k].value > edgeThreshold &&
                         segInfo.segmentedCloudGroundFlag[ind] == false) {
-                    
-                        largestPickedNum++;
+                        ++largestPickedNum;
                         if (largestPickedNum <= 2) {
                             cloudLabel[ind] = 2;
                             cornerPointsSharp->push_back(segmentedCloud->points[ind]);
@@ -705,13 +762,15 @@ public:
                         }
 
                         cloudNeighborPicked[ind] = 1;
-                        for (int l = 1; l <= 5; l++) {
+                        // TODO: 这里为什么不用检查数组是否越界呢？
+                        // 因为在 ImageProjection 中已经保证了 [5, end - 5);
+                        for (int l = 1; l <= 5; ++l) {
                             int columnDiff = std::abs(int(segInfo.segmentedCloudColInd[ind + l] - segInfo.segmentedCloudColInd[ind + l - 1]));
                             if (columnDiff > 10)
                                 break;
                             cloudNeighborPicked[ind + l] = 1;
                         }
-                        for (int l = -1; l >= -5; l--) {
+                        for (int l = -1; l >= -5; --l) {
                             int columnDiff = std::abs(int(segInfo.segmentedCloudColInd[ind + l] - segInfo.segmentedCloudColInd[ind + l + 1]));
                             if (columnDiff > 10)
                                 break;
@@ -721,22 +780,22 @@ public:
                 }
 
                 int smallestPickedNum = 0;
-                for (int k = sp; k <= ep; k++) {
+                for (int k = sp; k <= ep; ++k) {
                     int ind = cloudSmoothness[k].ind;
+                    
                     if (cloudNeighborPicked[ind] == 0 &&
-                        cloudCurvature[ind] < surfThreshold &&
+                        cloudSmoothness[k].value < surfThreshold &&
                         segInfo.segmentedCloudGroundFlag[ind] == true) {
-
-                        cloudLabel[ind] = -1;
-                        surfPointsFlat->push_back(segmentedCloud->points[ind]);
-
-                        smallestPickedNum++;
-                        if (smallestPickedNum >= 4) {
+                        ++smallestPickedNum;
+                        if (smallestPickedNum < 4){
+                            cloudLabel[ind] = -1;
+                            surfPointsFlat->push_back(segmentedCloud->points[ind]);
+                        } else{
                             break;
                         }
 
                         cloudNeighborPicked[ind] = 1;
-                        for (int l = 1; l <= 5; l++) {
+                        for (int l = 1; l <= 5; ++l) {
 
                             int columnDiff = std::abs(int(segInfo.segmentedCloudColInd[ind + l] - segInfo.segmentedCloudColInd[ind + l - 1]));
                             if (columnDiff > 10)
@@ -744,7 +803,7 @@ public:
 
                             cloudNeighborPicked[ind + l] = 1;
                         }
-                        for (int l = -1; l >= -5; l--) {
+                        for (int l = -1; l >= -5; --l) {
 
                             int columnDiff = std::abs(int(segInfo.segmentedCloudColInd[ind + l] - segInfo.segmentedCloudColInd[ind + l + 1]));
                             if (columnDiff > 10)
@@ -768,6 +827,7 @@ public:
 
             *surfPointsLessFlat += *surfPointsLessFlatScanDS;
         }
+        ROS_INFO("less_sharp: %d, less_flat: %d", cornerPointsLessSharp->size(), surfPointsLessFlat->size());
     }
 
     void publishCloud()
@@ -804,48 +864,12 @@ public:
     }
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    // 将 P_k 
     void TransformToStart(PointType const * const pi, PointType * const po)
     {
+        // s 是 scanPeriod * relTime
+        // TODO: 为什么要乘以 10？
+        // 应该是用来得到差分比例的
         float s = 10 * (pi->intensity - int(pi->intensity));
 
         float rx = s * transformCur[0];
@@ -1009,13 +1033,15 @@ public:
                      + sin(cx)*sin(cy)*sin(cz)) + cos(lx)*cos(ly)*cos(cx)*sin(cy);
         float crycrx = cos(lx)*cos(ly)*cos(cx)*cos(cy) - cos(lx)*sin(ly)*(cos(cz)*sin(cy) 
                      - cos(cy)*sin(cx)*sin(cz)) - sin(lx)*(sin(cy)*sin(cz) + cos(cy)*cos(cz)*sin(cx));
-        oy = atan2(srycrx / cos(ox), crycrx / cos(ox));
+        // oy = atan2(srycrx / cos(ox), crycrx / cos(ox));
+        oy = atan2(srycrx, crycrx);
 
         float srzcrx = sin(cx)*(cos(lz)*sin(ly) - cos(ly)*sin(lx)*sin(lz)) + cos(cx)*sin(cz)*(cos(ly)*cos(lz) 
                      + sin(lx)*sin(ly)*sin(lz)) + cos(lx)*cos(cx)*cos(cz)*sin(lz);
         float crzcrx = cos(lx)*cos(lz)*cos(cx)*cos(cz) - cos(cx)*sin(cz)*(cos(ly)*sin(lz) 
                      - cos(lz)*sin(lx)*sin(ly)) - sin(cx)*(sin(ly)*sin(lz) + cos(ly)*cos(lz)*sin(lx));
-        oz = atan2(srzcrx / cos(ox), crzcrx / cos(ox));
+        // oz = atan2(srzcrx / cos(ox), crzcrx / cos(ox));
+        oz = atan2(srzcrx, crzcrx);
     }
 
     double rad2deg(double radians)
@@ -1046,7 +1072,8 @@ public:
                     int closestPointScan = int(laserCloudCornerLast->points[closestPointInd].intensity);
 
                     float pointSqDis, minPointSqDis2 = nearestFeatureSearchSqDist;
-                    for (int j = closestPointInd + 1; j < cornerPointsSharpNum; j++) {
+                    for (int j = closestPointInd + 1; j < laserCloudCornerLast->points.size(); j++) {
+                        // TODO: 不应该是 1.5 么，2.5 的话不就是两根线了么
                         if (int(laserCloudCornerLast->points[j].intensity) > closestPointScan + 2.5) {
                             break;
                         }
@@ -1111,6 +1138,7 @@ public:
 
                 float a012 = sqrt(m11 * m11  + m22 * m22 + m33 * m33);
 
+                // 这里就不怕除 0 吗？
                 float l12 = sqrt((x1 - x2)*(x1 - x2) + (y1 - y2)*(y1 - y2) + (z1 - z2)*(z1 - z2));
 
                 float la =  ((y1 - y2)*m11 + (z1 - z2)*m22) / a012 / l12;
@@ -1157,7 +1185,7 @@ public:
                     int closestPointScan = int(laserCloudSurfLast->points[closestPointInd].intensity);
 
                     float pointSqDis, minPointSqDis2 = nearestFeatureSearchSqDist, minPointSqDis3 = nearestFeatureSearchSqDist;
-                    for (int j = closestPointInd + 1; j < surfPointsFlatNum; j++) {
+                    for (int j = closestPointInd + 1; j < laserCloudSurfLast->points.size(); j++) {
                         if (int(laserCloudSurfLast->points[j].intensity) > closestPointScan + 2.5) {
                             break;
                         }
@@ -1235,6 +1263,8 @@ public:
 
                 float pd2 = pa * pointSel.x + pb * pointSel.y + pc * pointSel.z + pd;
 
+                //这里的s是个权重, 表示s在这个least-square问题中的置信度, 每个点的置信度不一样
+		        //理论上, 这个权重, 与点到面距离负相关, 距离越大, 置信度越低, 这里相当于是一个在loss之外加了一个鲁棒性函数, 用来过减弱离群值的影响
                 float s = 1;
                 if (iterCount >= 5) {
                     s = 1 - 1.8 * fabs(pd2) / sqrt(sqrt(pointSel.x * pointSel.x
@@ -1625,6 +1655,7 @@ public:
 
     void updateInitialGuess(){
 
+        // 经过 adjustDistortion 之后 imuCur 就是 pointcloud 帧末尾的位姿
         imuPitchLast = imuPitchCur;
         imuYawLast = imuYawCur;
         imuRollLast = imuRollCur;
@@ -1648,6 +1679,19 @@ public:
             transformCur[4] -= imuVeloFromStartY * scanPeriod;
             transformCur[5] -= imuVeloFromStartZ * scanPeriod;
         }
+        geometry_msgs::PoseStamped msg;
+        tf::Quaternion tmp_q;
+        tmp_q.setRPY(transformCur[2], transformCur[0], transformCur[1]);
+        msg.pose.orientation.x = tmp_q.x();
+        msg.pose.orientation.y = tmp_q.y();
+        msg.pose.orientation.z = tmp_q.z();
+        msg.pose.orientation.w = tmp_q.w();
+        msg.pose.position.x = transformCur[3];
+        msg.pose.position.y = transformCur[4];
+        msg.pose.position.z = transformCur[5];
+        msg.header.stamp = ros::Time::now();
+        msg.header.frame_id = "map";
+        pub_tmp.publish(msg);
     }
 
     void updateTransformation(){
@@ -1663,8 +1707,10 @@ public:
 
             if (laserCloudOri->points.size() < 10)
                 continue;
-            if (calculateTransformationSurf(iterCount1) == false)
+            if (calculateTransformationSurf(iterCount1) == false){
+                // cout << "LM1 iters: " << iterCount1 << endl;
                 break;
+            }
         }
 
         for (int iterCount2 = 0; iterCount2 < 25; iterCount2++) {
@@ -1676,8 +1722,10 @@ public:
 
             if (laserCloudOri->points.size() < 10)
                 continue;
-            if (calculateTransformationCorner(iterCount2) == false)
+            if (calculateTransformationCorner(iterCount2) == false){
+                // cout << "LM2 iters: " << iterCount2 << endl;
                 break;
+            }
         }
     }
 

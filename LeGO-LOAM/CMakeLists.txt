@@ -23,6 +23,7 @@ find_package(catkin REQUIRED COMPONENTS
 find_package(GTSAM REQUIRED QUIET)
 find_package(PCL REQUIRED QUIET)
 find_package(OpenCV REQUIRED QUIET)
+find_package(Eigen3 REQUIRED QUIET)
 
 catkin_package(
   INCLUDE_DIRS include
@@ -35,7 +36,8 @@ include_directories(
 	${catkin_INCLUDE_DIRS}
 	${PCL_INCLUDE_DIRS}
 	${OpenCV_INCLUDE_DIRS}
-	${GTSAM_INCLUDE_DIR}
+  ${GTSAM_INCLUDE_DIR}
+  ${EIGEN3_INCLUDE_DIRS}
 )
 
 link_directories(
