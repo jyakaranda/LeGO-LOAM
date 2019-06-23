@@ -46,6 +46,8 @@
 
 #include <ceres/ceres.h>
 
+#include "alego/utility.h"
+
 namespace localization
 {
 
@@ -75,53 +77,6 @@ private:
     std::shared_ptr<LolLocalization> lol_;
   };
 
-  class CornerCostFunction : public SizedCostFunction<1, 6>
-  {
-  public:
-    CornerCostFunction(std::shared_ptr<LolLocalization> lol, Eigen::Vector3f p_o) : lol_(lol), p_o_(p_o) {}
-    ~CornerCostFunction() {}
-    /**
-     * @brief 
-     * 
-     * @param parameters x,y,z,roll,pitch,yaw 顺序
-     * @param residuals 
-     * @param jacobians 
-     * @return true 
-     * @return false 
-     */
-    virtual bool Evaluate(double const *const *parameters, double *residuals, double **jacobians) const override;
-
-  private:
-    // p_i_ 为局部坐标系中点 p_o_ 在世界坐标系中为坐标
-    Eigen::Vector3f p_o_;
-    // Eigen::Vector3f p_i_;
-    // Eigen::Vector3f p_j_;
-    // Eigen::Vector3f p_l_;
-    std::shared_ptr<LolLocalization> lol_;
-  };
-
-  class SurfCostFunction : public SizedCostFunction<1, 6>
-  {
-  public:
-    SurfCostFunction(std::shared_ptr<LolLocalization> lol, Eigen::Vector3f p_o) : lol_(lol), p_o_(p_o) {}
-    ~SurfCostFunction() {}
-    /**
-     * @brief 
-     * 
-     * @param parameters 
-     * @param residuals 
-     * @param jacobians 
-     * @return true 
-     * @return false 
-     */
-    virtual bool Evaluate(double const *const *parameters, double *residuals, double **jacobians) const override;
-
-  private:
-    Eigen::Vector3f p_o_;
-    // Eigen::Vector3f coeff_; // ax+by+cz+1=0 平面参数
-    std::shared_ptr<LolLocalization> lol_;
-  };
-
   std::shared_ptr<ros::NodeHandle> nh_;
   std::shared_ptr<ros::NodeHandle> pnh_;
   std::shared_ptr<LolLocalization> lol_;
@@ -143,8 +98,8 @@ private:
   ceres::Solver::Options options_;
   ceres::Solver::Summary summary_;
   double tobe_optimized_[6];
-  Eigen::Matrix3f R_tobe_;
-  Eigen::Vector3f T_tobe_;
+  Eigen::Matrix3d R_tobe_;
+  Eigen::Vector3d T_tobe_;
 
   // std::deque<nav_msgs::Odometry> msg_odoms_;
   std::array<nav_msgs::Odometry, 50> msg_odoms_;
@@ -201,7 +156,7 @@ private:
 
   geometry_msgs::PoseStamped cur_laser_pose_, pre_laser_pose_;
   std::deque<geometry_msgs::PoseStamped> history_poses_;
-  Eigen::Matrix4f tf_b2l_;
+  Eigen::Matrix4d tf_b2l_;
 
   std::mutex mtx_;
 
@@ -237,6 +192,15 @@ private:
   void scanToMapRegistration();
 
   void transformUpdate();
+
+  void pointAssociateToMap(const PointType &p_in, PointType &p_out)
+  {
+    const Eigen::Vector3d out = R_tobe_ * Eigen::Vector3d(p_in.x, p_in.y, p_in.z) + T_tobe_;
+    p_out.x = out.x();
+    p_out.y = out.y();
+    p_out.z = out.z();
+    p_out.intensity = p_in.intensity;
+  }
 };
 } // namespace localization
 

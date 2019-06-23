@@ -2,21 +2,20 @@
   <param name="/use_sim_time" value="true" />
   <rosparam file="$(find lego_lol)/params/global.yaml" command="load" />
 
-  <include file="$(find common)/launch/static_tf.launch" />
+  <!-- <node pkg="nodelet" type="nodelet" name="lego_manager" args="manager" output="screen" />
+  <node pkg="nodelet" type="nodelet" name="ImageProjection" args="load loam/ImageProjection lego_manager" output="log" />
+  <node pkg="nodelet" type="nodelet" name="LaserOdometry" args="load loam/LaserOdometry lego_manager" output="log" /> -->
 
-  <include file="$(find odom_imu)/launch/odom_imu.launch" />
+  <node pkg="alego" type="IP" name="IP" />
 
-  <node pkg="lego_lol" type="lol_IP" name="imageProjection">
-  </node>
-
-  <node pkg="lego_lol" type="lol_FE" name="featureExtraction">
+  <node pkg="alego" type="LO" name="LO" output="screen">
   </node>
 
   <node pkg="lego_lol" type="lol" name="lol" output="screen">
-    <remap from="/corner" to="/laser_cloud_less_sharp" />
-    <remap from="/surf" to="/laser_cloud_less_flat" />
-    <remap from="/outlier" to="/laser_cloud_outlier" />
-    <remap from="/odom" to="/odom/imu" />
+    <remap from="/corner" to="/corner_less" />
+    <remap from="/surf" to="/surf_less" />
+    <!-- <remap from="/outlier" to="/laser_cloud_outlier" /> -->
+    <remap from="/odom" to="/odom/lidar" />
     <rosparam file="$(find lego_lol)/params/test.yaml" command="load" />
     <param name="fn_poses" value="$(find bag_file)/pcd/keypose_tf.pcd" />
     <param name="fn_corner" value="$(find bag_file)/pcd/corner_tf.pcd" />

@@ -15,6 +15,7 @@ find_package(catkin REQUIRED COMPONENTS
   rospy
   sensor_msgs
   tf
+  alego
 )
 
 find_package(Eigen3 REQUIRED)
@@ -23,8 +24,8 @@ find_package(PCL REQUIRED)
 find_package(OpenCV REQUIRED)
 
 catkin_package(
-#  INCLUDE_DIRS include
-#  LIBRARIES lego_lol
+ INCLUDE_DIRS include
+#  LIBRARIES lol_localization
 #  CATKIN_DEPENDS geometry_msgs nav_msgs roscpp rospy sensor_msgs tf
 #  DEPENDS system_lib
 )
@@ -46,13 +47,3 @@ target_link_libraries(lol_localization
 
 add_executable(lol src/main.cpp)
 target_link_libraries(lol lol_localization)
-
-add_executable(lol_IP src/imageProjection.cpp)
-target_link_libraries(lol_IP ${catkin_LIBRARIES}
-  ${PCL_LIBRARIES}
-  ${OpenCV_LIBRARIES})
-
-add_executable(lol_FE src/featureExtraction.cpp)
-target_link_libraries(lol_FE ${catkin_LIBRARIES}
-  ${PCL_LIBRARIES}
-  ${OpenCV_LIBRARIES})

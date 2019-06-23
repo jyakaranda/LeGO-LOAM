@@ -28,16 +28,16 @@ LolLocalization::LolLocalization(std::shared_ptr<ros::NodeHandle> nh, std::share
   pnh_->param<std::string>("fn_outlier", fn_outlier_, std::string("~"));
   pnh_->param<float>("target_update_dist", target_update_dist_, 5.);
 
-  tf_b2l_ = Eigen::Matrix4f::Identity();
+  tf_b2l_ = Eigen::Matrix4d::Identity();
   float roll, pitch, yaw;
   if (!nh_->getParam("tf_b2l_x", tf_b2l_(0, 3)) || !nh_->getParam("tf_b2l_y", tf_b2l_(1, 3)) || !nh_->getParam("tf_b2l_z", tf_b2l_(2, 3)) || !nh_->getParam("tf_b2l_roll", roll) || !nh_->getParam("tf_b2l_pitch", pitch) || !nh_->getParam("tf_b2l_yaw", yaw))
   {
     ROS_ERROR("transform between /base_link to /laser not set.");
     exit(-1);
   }
-  Eigen::AngleAxisf rx(roll, Eigen::Vector3f::UnitX());
-  Eigen::AngleAxisf ry(pitch, Eigen::Vector3f::UnitY());
-  Eigen::AngleAxisf rz(yaw, Eigen::Vector3f::UnitZ());
+  Eigen::AngleAxisd rx(roll, Eigen::Vector3d::UnitX());
+  Eigen::AngleAxisd ry(pitch, Eigen::Vector3d::UnitY());
+  Eigen::AngleAxisd rz(yaw, Eigen::Vector3d::UnitZ());
   tf_b2l_.block(0, 0, 3, 3) = (rz * ry * rx).matrix();
 
   if (!init())
@@ -154,13 +154,13 @@ bool LolLocalization::init()
   {
     tobe_optimized_[i] = 0;
   }
-  options_.minimizer_progress_to_stdout = true;
-  // options_.linear_solver_type = ceres::DENSE_QR;
-  options_.trust_region_strategy_type = ceres::LEVENBERG_MARQUARDT;
-  options_.max_num_iterations = 10;
+  // options_.minimizer_progress_to_stdout = true;
+  options_.linear_solver_type = ceres::DENSE_QR;
+  options_.max_num_iterations = 20;
   // options_.initial_trust_region_radius = 1e2;
   // options_.max_trust_region_radius = 1e6;
   // options_.min_trust_region_radius = 1e-10;
+  options_.gradient_check_relative_precision = 1e-4;
   options_.callbacks.push_back(new IterCB(lol_));
   options_.update_state_every_iteration = true;
 
@@ -249,12 +249,12 @@ void LolLocalization::odomThread()
 
       int ptr_back = (ptr + 50 - 1) % 50;
       float ratio_back = (cur_laser_odom.header.stamp.toSec() - msg_odoms_[ptr_back].header.stamp.toSec()) / (msg_odoms_[ptr].header.stamp.toSec() - msg_odoms_[ptr_back].header.stamp.toSec());
-      Eigen::Quaternionf q_b(msg_odoms_[ptr_back].pose.pose.orientation.w, msg_odoms_[ptr_back].pose.pose.orientation.x, msg_odoms_[ptr_back].pose.pose.orientation.y, msg_odoms_[ptr_back].pose.pose.orientation.z);
-      Eigen::Quaternionf q_f(msg_odoms_[ptr].pose.pose.orientation.w, msg_odoms_[ptr].pose.pose.orientation.x, msg_odoms_[ptr].pose.pose.orientation.y, msg_odoms_[ptr].pose.pose.orientation.z);
+      Eigen::Quaterniond q_b(msg_odoms_[ptr_back].pose.pose.orientation.w, msg_odoms_[ptr_back].pose.pose.orientation.x, msg_odoms_[ptr_back].pose.pose.orientation.y, msg_odoms_[ptr_back].pose.pose.orientation.z);
+      Eigen::Quaterniond q_f(msg_odoms_[ptr].pose.pose.orientation.w, msg_odoms_[ptr].pose.pose.orientation.x, msg_odoms_[ptr].pose.pose.orientation.y, msg_odoms_[ptr].pose.pose.orientation.z);
       auto euler_b = q_b.toRotationMatrix().eulerAngles(2, 1, 0);
       auto euler_f = q_f.toRotationMatrix().eulerAngles(2, 1, 0);
-      Eigen::Vector3f euler = (1 - ratio_back) * euler_b + ratio_back * euler_f;
-      Eigen::Quaternionf q_cur = Eigen::AngleAxisf(euler(0), Eigen::Vector3f::UnitZ()) * Eigen::AngleAxisf(euler(1), Eigen::Vector3f::UnitY()) * Eigen::AngleAxisf(euler(2), Eigen::Vector3f::UnitX());
+      Eigen::Vector3d euler = (1 - ratio_back) * euler_b + ratio_back * euler_f;
+      Eigen::Quaterniond q_cur = Eigen::AngleAxisd(euler(0), Eigen::Vector3d::UnitZ()) * Eigen::AngleAxisd(euler(1), Eigen::Vector3d::UnitY()) * Eigen::AngleAxisd(euler(2), Eigen::Vector3d::UnitX());
 
       cur_laser_odom.pose.pose.position.x = (1 - ratio_back) * msg_odoms_[ptr_back].pose.pose.position.x + ratio_back * msg_odoms_[ptr].pose.pose.position.x;
       cur_laser_odom.pose.pose.position.y = (1 - ratio_back) * msg_odoms_[ptr_back].pose.pose.position.y + ratio_back * msg_odoms_[ptr].pose.pose.position.y;
@@ -279,15 +279,15 @@ void LolLocalization::odomThread()
     {
       // 使用里程计数据预测目前 laser 的位姿情况，T_{o-cur_laser_pose} * T_{o-cur_laser_odom}^{-1} * T_{o-recent_laser_odom}
       // 做一个插值
-      Eigen::Matrix4f T_olp = Eigen::Matrix4f::Identity();
-      Eigen::Quaternionf q_olc(cur_laser_pose_.pose.orientation.w, cur_laser_pose_.pose.orientation.x, cur_laser_pose_.pose.orientation.y, cur_laser_pose_.pose.orientation.z);
-      Eigen::Quaternionf q_ooc(cur_laser_odom.pose.pose.orientation.w, cur_laser_odom.pose.pose.orientation.x, cur_laser_odom.pose.pose.orientation.y, cur_laser_odom.pose.pose.orientation.z);
-      Eigen::Quaternionf q_oor(recent_laser_odom.pose.pose.orientation.w, recent_laser_odom.pose.pose.orientation.x, recent_laser_odom.pose.pose.orientation.y, recent_laser_odom.pose.pose.orientation.z);
-      Eigen::Quaternionf q_olp = q_olc * q_ooc.inverse() * q_oor;
-      Eigen::Vector3f t_olc(cur_laser_pose_.pose.position.x, cur_laser_pose_.pose.position.y, cur_laser_pose_.pose.position.z);
-      Eigen::Vector3f t_ooc(cur_laser_odom.pose.pose.position.x, cur_laser_odom.pose.pose.position.y, cur_laser_odom.pose.pose.position.z);
-      Eigen::Vector3f t_oor(recent_laser_odom.pose.pose.position.x, recent_laser_odom.pose.pose.position.y, recent_laser_odom.pose.pose.position.z);
-      Eigen::Vector3f t_olp = t_olc - q_olc * q_ooc.inverse() * (t_ooc - t_oor);
+      Eigen::Matrix4d T_olp = Eigen::Matrix4d::Identity();
+      Eigen::Quaterniond q_olc(cur_laser_pose_.pose.orientation.w, cur_laser_pose_.pose.orientation.x, cur_laser_pose_.pose.orientation.y, cur_laser_pose_.pose.orientation.z);
+      Eigen::Quaterniond q_ooc(cur_laser_odom.pose.pose.orientation.w, cur_laser_odom.pose.pose.orientation.x, cur_laser_odom.pose.pose.orientation.y, cur_laser_odom.pose.pose.orientation.z);
+      Eigen::Quaterniond q_oor(recent_laser_odom.pose.pose.orientation.w, recent_laser_odom.pose.pose.orientation.x, recent_laser_odom.pose.pose.orientation.y, recent_laser_odom.pose.pose.orientation.z);
+      Eigen::Quaterniond q_olp = q_olc * q_ooc.inverse() * q_oor;
+      Eigen::Vector3d t_olc(cur_laser_pose_.pose.position.x, cur_laser_pose_.pose.position.y, cur_laser_pose_.pose.position.z);
+      Eigen::Vector3d t_ooc(cur_laser_odom.pose.pose.position.x, cur_laser_odom.pose.pose.position.y, cur_laser_odom.pose.pose.position.z);
+      Eigen::Vector3d t_oor(recent_laser_odom.pose.pose.position.x, recent_laser_odom.pose.pose.position.y, recent_laser_odom.pose.pose.position.z);
+      Eigen::Vector3d t_olp = t_olc - q_olc * q_ooc.inverse() * (t_ooc - t_oor);
       T_olp.block<3, 3>(0, 0) = q_olp.matrix();
       T_olp.block<3, 1>(0, 3) = t_olp;
 
@@ -452,9 +452,9 @@ void LolLocalization::scanToMapRegistration()
   kdtree_surf_target_->setInputCloud(pc_surf_target_ds_);
 
   // 更新优化初值
-  const Eigen::Matrix3f R_m2l = Eigen::Quaternionf(cur_laser_pose_.pose.orientation.w, cur_laser_pose_.pose.orientation.x, cur_laser_pose_.pose.orientation.y, cur_laser_pose_.pose.orientation.z).toRotationMatrix();
-  const Eigen::Vector3f T_m2l(cur_laser_pose_.pose.position.x, cur_laser_pose_.pose.position.y, cur_laser_pose_.pose.position.z);
-  Eigen::Vector3f ypr = R_m2l.eulerAngles(2, 1, 0);
+  const Eigen::Matrix3d R_m2l = Eigen::Quaterniond(cur_laser_pose_.pose.orientation.w, cur_laser_pose_.pose.orientation.x, cur_laser_pose_.pose.orientation.y, cur_laser_pose_.pose.orientation.z).toRotationMatrix();
+  const Eigen::Vector3d T_m2l(cur_laser_pose_.pose.position.x, cur_laser_pose_.pose.position.y, cur_laser_pose_.pose.position.z);
+  Eigen::Vector3d ypr = R_m2l.eulerAngles(2, 1, 0);
   tobe_optimized_[0] = cur_laser_pose_.pose.position.x;
   tobe_optimized_[1] = cur_laser_pose_.pose.position.y;
   tobe_optimized_[2] = cur_laser_pose_.pose.position.z;
@@ -466,39 +466,126 @@ void LolLocalization::scanToMapRegistration()
 
   ROS_INFO("init optimize");
 
-  // part1: corner constraint
-  for (int i = 0; i < laser_corner_ds_->points.size(); ++i)
+  for (int iter_cnt = 0; iter_cnt < 2; ++iter_cnt)
   {
-    // TODO: 调参
-    problem_.AddResidualBlock(new CornerCostFunction(lol_, Eigen::Vector3f(laser_corner_ds_->points[i].x, laser_corner_ds_->points[i].y, laser_corner_ds_->points[i].z)),
-                              new ceres::HuberLoss(1), tobe_optimized_);
+    TicToc t_data;
+    ceres::LossFunction *loss_function = new ceres::HuberLoss(0.1);
+    ceres::Problem::Options problem_options;
+    ceres::Problem problem(problem_options);
+    // problem.AddParameterBlock(parameters, 4, q_parameterization);
+    problem.AddParameterBlock(tobe_optimized_, 6);
+
+    int corner_correspondace = 0, surf_correnspondance = 0;
+    int test_p = 0;
+
+    // part1: corner constraint
+    for (int i = 0; i < laser_corner_ds_->points.size(); ++i)
+    {
+      PointType point_sel;
+      pointAssociateToMap(laser_corner_ds_->points[i], point_sel);
+      kdtree_corner_target_->nearestKSearch(point_sel, 5, point_search_idx_, point_search_dist_);
+      if (point_search_dist_[4] < 1.0)
+      {
+        std::vector<Eigen::Vector3d> nearCorners;
+        Eigen::Vector3d center(0., 0., 0.);
+        for (int j = 0; j < 5; j++)
+        {
+          Eigen::Vector3d tmp(pc_corner_target_ds_->points[point_search_idx_[j]].x,
+                              pc_corner_target_ds_->points[point_search_idx_[j]].y,
+                              pc_corner_target_ds_->points[point_search_idx_[j]].z);
+          center = center + tmp;
+          nearCorners.push_back(tmp);
+        }
+        center = center / 5.0;
+
+        Eigen::Matrix3d covMat = Eigen::Matrix3d::Zero();
+        for (int j = 0; j < 5; j++)
+        {
+          Eigen::Matrix<double, 3, 1> tmpZeroMean = nearCorners[j] - center;
+          covMat = covMat + tmpZeroMean * tmpZeroMean.transpose();
+        }
+
+        Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> saes(covMat);
+
+        // if is indeed line feature
+        // note Eigen library sort eigenvalues in increasing order
+        Eigen::Vector3d unit_direction = saes.eigenvectors().col(2);
+        Eigen::Vector3d cp(laser_corner_ds_->points[i].x, laser_corner_ds_->points[i].y, laser_corner_ds_->points[i].z);
+        if (saes.eigenvalues()[2] > 3 * saes.eigenvalues()[1])
+        {
+          Eigen::Vector3d point_on_line = center;
+          Eigen::Vector3d lpj = 0.1 * unit_direction + point_on_line;
+          Eigen::Vector3d lpl = -0.1 * unit_direction + point_on_line;
+          problem.AddResidualBlock(new LidarEdgeCostFunction(cp, lpj, lpl),
+                                   loss_function, tobe_optimized_);
+          ++corner_correspondace;
+        }
+        else
+        {
+          ++test_p;
+        }
+      }
+    }
+
+    // part2: surf constraint
+    for (int i = 0; i < laser_surf_ds_->points.size(); ++i)
+    {
+      PointT point_sel;
+      pointAssociateToMap(laser_surf_ds_->points[i], point_sel);
+      kdtree_surf_target_->nearestKSearch(point_sel, 5, point_search_idx_, point_search_dist_);
+      Eigen::Matrix<double, 5, 3> matA0;
+      Eigen::Matrix<double, 5, 1> matB0 = -1 * Eigen::Matrix<double, 5, 1>::Ones();
+      if (point_search_dist_[4] < 1.0)
+      {
+        for (int j = 0; j < 5; j++)
+        {
+          matA0(j, 0) = pc_surf_target_ds_->points[point_search_idx_[j]].x;
+          matA0(j, 1) = pc_surf_target_ds_->points[point_search_idx_[j]].y;
+          matA0(j, 2) = pc_surf_target_ds_->points[point_search_idx_[j]].z;
+        }
+        // find the norm of plane
+        Eigen::Vector3d norm = matA0.colPivHouseholderQr().solve(matB0);
+        double negative_OA_dot_norm = 1 / norm.norm();
+        norm.normalize();
+
+        // Here n(pa, pb, pc) is unit norm of plane
+        bool planeValid = true;
+        for (int j = 0; j < 5; j++)
+        {
+          // if OX * n > 0.2, then plane is not fit well
+          if (fabs(norm(0) * pc_surf_target_ds_->points[point_search_idx_[j]].x +
+                   norm(1) * pc_surf_target_ds_->points[point_search_idx_[j]].y +
+                   norm(2) * pc_surf_target_ds_->points[point_search_idx_[j]].z + negative_OA_dot_norm) > 0.2)
+          {
+            planeValid = false;
+            ROS_WARN_ONCE("plane is not fit well");
+            break;
+          }
+        }
+        if (planeValid)
+        {
+          Eigen::Vector3d cp(laser_surf_ds_->points[i].x, laser_surf_ds_->points[i].y, laser_surf_ds_->points[i].z);
+          problem.AddResidualBlock(new LidarPlaneCostFunction(cp, norm, negative_OA_dot_norm),
+                                   loss_function, tobe_optimized_);
+          // TODO: 先解决 corner 数量过少的问题，少了十倍
+          ++surf_correnspondance;
+        }
+      }
+    }
+
+    ROS_INFO("start optimize");
+
+    ceres::Solve(options_, &problem_, &summary_);
+
+    ROS_INFO("time elapesd: %.3fms\n%s", t_data.toc(), summary_.BriefReport().c_str());
   }
-
-  // part2: surf constraint
-  for (int i = 0; i < laser_surf_ds_->points.size(); ++i)
-  {
-    problem_.AddResidualBlock(new SurfCostFunction(lol_, Eigen::Vector3f(laser_surf_ds_->points[i].x, laser_surf_ds_->points[i].y, laser_surf_ds_->points[i].z)),
-                              new ceres::HuberLoss(1), tobe_optimized_);
-  }
-
-  ROS_INFO("start optimize");
-  auto start = std::chrono::system_clock::now();
-
-  ceres::Solve(options_, &problem_, &summary_);
-
-  auto end = std::chrono::system_clock::now();
-  std::chrono::duration<double> elapsed = end - start;
-
-  ROS_INFO("time elapesd: %f\n%s", elapsed.count(), summary_.BriefReport().c_str());
-
-  // TODO: 最好能仅对有效的 ResidualBlock 优化，也就是 Evaluate 返回为 true 的
 }
 
 void LolLocalization::transformUpdate()
 {
   ROS_INFO("transformUpdate");
   pre_laser_pose_ = cur_laser_pose_;
-  Eigen::Quaternionf q_cur = Eigen::AngleAxisf(tobe_optimized_[5], Eigen::Vector3f::UnitZ()) * Eigen::AngleAxisf(tobe_optimized_[4], Eigen::Vector3f::UnitY()) * Eigen::AngleAxisf(tobe_optimized_[3], Eigen::Vector3f::UnitX());
+  Eigen::Quaterniond q_cur = Eigen::AngleAxisd(tobe_optimized_[5], Eigen::Vector3d::UnitZ()) * Eigen::AngleAxisd(tobe_optimized_[4], Eigen::Vector3d::UnitY()) * Eigen::AngleAxisd(tobe_optimized_[3], Eigen::Vector3d::UnitX());
   cur_laser_pose_.header.stamp = ros::Time::now();
   cur_laser_pose_.header.frame_id = "map";
   cur_laser_pose_.pose.position.x = tobe_optimized_[0];
@@ -553,13 +640,13 @@ CallbackReturnType LolLocalization::IterCB::operator()(const IterationSummary &s
 
   ROS_INFO("iteration cb, effect_residuals %d", lol_->effect_residuals_);
   lol_->effect_residuals_ = 0;
-  lol_->R_tobe_ = Eigen::AngleAxisf(lol_->tobe_optimized_[5], Eigen::Vector3f::UnitZ()) * Eigen::AngleAxisf(lol_->tobe_optimized_[4], Eigen::Vector3f::UnitY()) * Eigen::AngleAxisf(lol_->tobe_optimized_[3], Eigen::Vector3f::UnitX());
-  lol_->T_tobe_ = Eigen::Vector3f(lol_->tobe_optimized_[0], lol_->tobe_optimized_[1], lol_->tobe_optimized_[2]);
-  static Eigen::Vector3f pre_r, pre_t;
+  lol_->R_tobe_ = Eigen::AngleAxisd(lol_->tobe_optimized_[5], Eigen::Vector3d::UnitZ()) * Eigen::AngleAxisd(lol_->tobe_optimized_[4], Eigen::Vector3d::UnitY()) * Eigen::AngleAxisd(lol_->tobe_optimized_[3], Eigen::Vector3d::UnitX());
+  lol_->T_tobe_ = Eigen::Vector3d(lol_->tobe_optimized_[0], lol_->tobe_optimized_[1], lol_->tobe_optimized_[2]);
+  static Eigen::Vector3d pre_r, pre_t;
   if (summary.iteration == 0)
   {
-    pre_r = Eigen::Vector3f(lol_->tobe_optimized_[3], lol_->tobe_optimized_[4], lol_->tobe_optimized_[5]);
-    pre_t = Eigen::Vector3f(lol_->tobe_optimized_[0], lol_->tobe_optimized_[1], lol_->tobe_optimized_[2]);
+    pre_r = Eigen::Vector3d(lol_->tobe_optimized_[3], lol_->tobe_optimized_[4], lol_->tobe_optimized_[5]);
+    pre_t = Eigen::Vector3d(lol_->tobe_optimized_[0], lol_->tobe_optimized_[1], lol_->tobe_optimized_[2]);
   }
   else
   {
@@ -574,250 +661,11 @@ CallbackReturnType LolLocalization::IterCB::operator()(const IterationSummary &s
     {
       return SOLVER_TERMINATE_SUCCESSFULLY;
     }
-    pre_r = Eigen::Vector3f(lol_->tobe_optimized_[3], lol_->tobe_optimized_[4], lol_->tobe_optimized_[5]);
-    pre_t = Eigen::Vector3f(lol_->tobe_optimized_[0], lol_->tobe_optimized_[1], lol_->tobe_optimized_[2]);
+    pre_r = Eigen::Vector3d(lol_->tobe_optimized_[3], lol_->tobe_optimized_[4], lol_->tobe_optimized_[5]);
+    pre_t = Eigen::Vector3d(lol_->tobe_optimized_[0], lol_->tobe_optimized_[1], lol_->tobe_optimized_[2]);
   }
 
   return SOLVER_CONTINUE;
-}
-
-// TODO: 写个单元测试看看对不对，还有 gradient check
-// 能不能写个把 sin, cos 存在表里，到时候直接查表提高计算速度
-bool LolLocalization::CornerCostFunction::Evaluate(double const *const *parameters, double *residuals, double **jacobians) const
-{
-  // 将点投影到 map 中，近邻查找地图中最近的 corner，根据该 corner 所在直线约束该点
-  // 通过 PCA 地图中附近的 corner 点的主成分得到直线的方向，进而计算得到 p_j, p_l
-  const Eigen::Vector3f p_i = lol_->R_tobe_ * p_o_ + lol_->T_tobe_;
-  PointType p;
-  p.x = p_i.x();
-  p.y = p_i.y();
-  p.z = p_i.z();
-  lol_->kdtree_corner_target_->nearestKSearch(p, 5, lol_->point_search_idx_, lol_->point_search_dist_);
-
-  // TODO: 测试阈值
-  if (lol_->point_search_dist_[4] < 1.)
-  {
-    float cx = 0, cy = 0, cz = 0;
-    for (int j = 0; j < 5; ++j)
-    {
-      cx += lol_->pc_corner_target_ds_->points[lol_->point_search_idx_[j]].x;
-      cy += lol_->pc_corner_target_ds_->points[lol_->point_search_idx_[j]].y;
-      cz += lol_->pc_corner_target_ds_->points[lol_->point_search_idx_[j]].z;
-    }
-    cx /= 5;
-    cy /= 5;
-    cz /= 5;
-
-    float a11 = 0, a12 = 0, a13 = 0, a22 = 0, a23 = 0, a33 = 0;
-    float ax, ay, az;
-    for (int j = 0; j < 5; ++j)
-    {
-      ax = lol_->pc_corner_target_ds_->points[j].x - cx;
-      ay = lol_->pc_corner_target_ds_->points[j].y - cy;
-      az = lol_->pc_corner_target_ds_->points[j].z - cz;
-
-      a11 += ax * ax;
-      a12 += ax * ay;
-      a13 += ax * az;
-      a22 += ay * ay;
-      a23 += ay * az;
-      a33 += az * az;
-    }
-    a11 /= 5;
-    a12 /= 5;
-    a13 /= 5;
-    a22 /= 5;
-    a23 /= 5;
-    a33 /= 5;
-    Eigen::Matrix3f A;
-    A << a11, a12, a13, a12, a22, a23, a13, a23, a33;
-    Eigen::EigenSolver<Eigen::Matrix3f> es(A);
-    Eigen::Matrix3f D = es.pseudoEigenvalueMatrix();
-    Eigen::Matrix3f V = es.pseudoEigenvalueMatrix();
-    int max_r, max_c;
-    int min_r, min_c;
-    int mid_r, mid_c;
-    D.maxCoeff(&max_r, &max_c);
-    D.minCoeff(&min_r, &min_c);
-    mid_r = 3 - (max_r + min_r);
-    mid_c = mid_r;
-
-    // 得保证最大特征值远大于其余特征值，才能保证求解的是直线上的 corner
-    // TODO: 调参
-    if (D(max_r, max_c) > 3 * D(mid_r, mid_c))
-    {
-      Eigen::Vector3f p_j(cx + 0.1 * V(0, max_r), cy + 0.1 * V(1, max_r), cz + 0.1 * V(2, max_r));
-      Eigen::Vector3f p_l(cx - 0.1 * V(0, max_r), cy - 0.1 * V(1, max_r), cz - 0.1 * V(2, max_r));
-
-      double k = std::sqrt(std::pow(p_j.x() - p_l.x(), 2) + std::pow(p_j.y() - p_l.y(), 2) + std::pow(p_j.z() - p_l.z(), 2));
-      double a = (p_i.y() - p_j.y()) * (p_i.z() - p_l.z()) - (p_i.z() - p_j.z()) * (p_i.y() - p_l.y());
-      double b = (p_i.z() - p_j.z()) * (p_i.x() - p_l.x()) - (p_i.x() - p_j.x()) * (p_i.z() - p_l.z());
-      double c = (p_i.x() - p_j.x()) * (p_i.y() - p_i.y()) - (p_i.y() - p_j.y()) * (p_i.x() - p_l.x());
-      double m = std::sqrt(a * a + b * b + c * c);
-
-      ROS_INFO("k: %f, m: %f", k, m);
-
-      residuals[0] = m / k;
-
-      double dm_dx = (b * (p_j.z() - p_l.z()) + c * (p_j.y() - p_l.y())) / m;
-      double dm_dy = (a * (p_j.z() - p_l.z()) - c * (p_j.x() - p_l.x())) / m;
-      double dm_dz = (-a * (p_j.y() - p_l.y()) - b * (p_j.x() - p_l.x())) / m;
-
-      double sr = std::sin(parameters[0][3]);
-      double cr = std::cos(parameters[0][3]);
-      double sp = std::sin(parameters[0][4]);
-      double cp = std::cos(parameters[0][4]);
-      double sy = std::sin(parameters[0][5]);
-      double cy = std::cos(parameters[0][5]);
-
-      double dx_dr = (cy * sp * cr + sr * sy) * p_o_.y() + (sy * cr - cy * sr * sp) * p_o_.z();
-      double dy_dr = (-cy * sr + sy * sp * cr) * p_o_.y() + (-sr * sy * sp - cy * cr) * p_o_.z();
-      double dz_dr = cp * cr * p_o_.y() - cp * sr * p_o_.z();
-
-      double dx_dp = -cy * sp * p_o_.x() + cy * cp * sr * p_o_.y() + cy * cr * cp * p_o_.z();
-      double dy_dp = -sp * sy * p_o_.x() + sy * cp * sr * p_o_.y() + cr * sr * cp * p_o_.z();
-      double dz_dp = -cp * p_o_.x() - sp * sr * p_o_.y() - sp * cr * p_o_.z();
-
-      double dx_dy = -sy * cp * p_o_.x() - (sy * sp * sr + cr * cy) * p_o_.y() + (cy * sr - sy * cr * sp) * p_o_.z();
-      double dy_dy = cp * cy * p_o_.x() + (-sy * cr + cy * sp * sr) * p_o_.y() + (cy * cr * sp + sy * sr) * p_o_.z();
-      double dz_dy = 0.;
-
-      if (jacobians && jacobians[0])
-      {
-        jacobians[0][0] = dm_dx / k;
-        jacobians[0][1] = dm_dy / k;
-        jacobians[0][2] = dm_dz / k;
-        jacobians[0][3] = (dm_dx * dx_dr + dm_dy * dy_dr + dm_dz * dz_dr) / k;
-        jacobians[0][4] = (dm_dx * dx_dp + dm_dy * dy_dp + dm_dz * dz_dp) / k;
-        jacobians[0][5] = (dm_dx * dx_dy + dm_dy * dy_dy + dm_dz * dz_dy) / k;
-      }
-
-      ++lol_->effect_residuals_;
-
-      ROS_INFO("test corner");
-
-      return true;
-    }
-  }
-
-  residuals[0] = 0;
-  if (!jacobians && !jacobians[0])
-  {
-    jacobians[0][0] = 0;
-    jacobians[0][1] = 0;
-    jacobians[0][2] = 0;
-    jacobians[0][3] = 0;
-    jacobians[0][4] = 0;
-    jacobians[0][5] = 0;
-  }
-
-  return true;
-}
-
-bool LolLocalization::SurfCostFunction::Evaluate(double const *const *parameters, double *residuals, double **jacobians) const
-{
-  const Eigen::Vector3f p_i = lol_->R_tobe_ * p_o_ + lol_->T_tobe_;
-  PointType p;
-  p.x = p_i.x();
-  p.y = p_i.y();
-  p.z = p_i.z();
-  lol_->kdtree_surf_target_->nearestKSearch(p, 5, lol_->point_search_idx_, lol_->point_search_dist_);
-
-  if (lol_->point_search_dist_[4] < 1.0)
-  {
-    Eigen::Matrix<float, 5, 3> A;
-    Eigen::Matrix<float, 5, 1> B;
-    B << -1, -1, -1, -1, -1;
-    for (int j = 0; j < 5; ++j)
-    {
-      A(j, 0) = lol_->pc_surf_target_ds_->points[j].x;
-      A(j, 1) = lol_->pc_surf_target_ds_->points[j].y;
-      A(j, 2) = lol_->pc_surf_target_ds_->points[j].z;
-    }
-    Eigen::Vector3f X = A.colPivHouseholderQr().solve(B);
-    float pa = X(0);
-    float pb = X(1);
-    float pc = X(2);
-    float pd = 1;
-    float ps = std::sqrt(pa * pa + pb * pb + pc * pc);
-    bool plane_valid = true;
-    for (int j = 0; j < 5; ++j)
-    {
-      if (std::fabs(pa * A(j, 0) + pb * A(j, 1) + pc * A(j, 2) + pd) / ps > 0.2)
-      {
-        plane_valid = false;
-        break;
-      }
-    }
-
-    if (plane_valid)
-    {
-      double m = pa * p_i.x() + pb * p_i.y() + pc * p_i.z() + pd;
-      double k = ps;
-
-      residuals[0] = m / k;
-
-      double dm_dx, dm_dy, dm_dz;
-      if (m < 0.)
-      {
-        dm_dx = -pa;
-        dm_dy = -pb;
-        dm_dz = -pc;
-      }
-      else
-      {
-        dm_dx = pa;
-        dm_dy = pb;
-        dm_dz = pc;
-      }
-
-      double sr = std::sin(parameters[0][3]);
-      double cr = std::cos(parameters[0][3]);
-      double sp = std::sin(parameters[0][4]);
-      double cp = std::cos(parameters[0][4]);
-      double sy = std::sin(parameters[0][5]);
-      double cy = std::cos(parameters[0][5]);
-
-      double dx_dr = (cy * sp * cr + sr * sy) * p_o_.y() + (sy * cr - cy * sr * sp) * p_o_.z();
-      double dy_dr = (-cy * sr + sy * sp * cr) * p_o_.y() + (-sr * sy * sp - cy * cr) * p_o_.z();
-      double dz_dr = cp * cr * p_o_.y() - cp * sr * p_o_.z();
-
-      double dx_dp = -cy * sp * p_o_.x() + cy * cp * sr * p_o_.y() + cy * cr * cp * p_o_.z();
-      double dy_dp = -sp * sy * p_o_.x() + sy * cp * sr * p_o_.y() + cr * sr * cp * p_o_.z();
-      double dz_dp = -cp * p_o_.x() - sp * sr * p_o_.y() - sp * cr * p_o_.z();
-
-      double dx_dy = -sy * cp * p_o_.x() - (sy * sp * sr + cr * cy) * p_o_.y() + (cy * sr - sy * cr * sp) * p_o_.z();
-      double dy_dy = cp * cy * p_o_.x() + (-sy * cr + cy * sp * sr) * p_o_.y() + (cy * cr * sp + sy * sr) * p_o_.z();
-      double dz_dy = 0.;
-
-      if (jacobians && jacobians[0])
-      {
-        jacobians[0][0] = dm_dx / k;
-        jacobians[0][1] = dm_dy / k;
-        jacobians[0][2] = dm_dz / k;
-        jacobians[0][3] = (dm_dx * dx_dr + dm_dy * dy_dr + dm_dz * dz_dr) / k;
-        jacobians[0][4] = (dm_dx * dx_dp + dm_dy * dy_dp + dm_dz * dz_dp) / k;
-        jacobians[0][5] = (dm_dx * dx_dy + dm_dy * dy_dy + dm_dz * dz_dy) / k;
-      }
-
-      ++lol_->effect_residuals_;
-
-      return true;
-    }
-  }
-  residuals[0] = 0;
-
-  if (!jacobians && !jacobians[0])
-  {
-    jacobians[0][0] = 0;
-    jacobians[0][1] = 0;
-    jacobians[0][2] = 0;
-    jacobians[0][3] = 0;
-    jacobians[0][4] = 0;
-    jacobians[0][5] = 0;
-  }
-
-  return true;
 }
 
 } // namespace localization
