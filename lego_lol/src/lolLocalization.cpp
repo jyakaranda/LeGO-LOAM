@@ -96,26 +96,22 @@ bool LolLocalization::init()
   pcl::PointCloud<PointType>::Ptr corner_pc(new pcl::PointCloud<PointType>());
   pcl::PointCloud<PointType>::Ptr surf_pc(new pcl::PointCloud<PointType>());
   pcl::PointCloud<PointType>::Ptr outlier_pc(new pcl::PointCloud<PointType>());
-  auto start = std::chrono::system_clock::now();
+  
+  TicToc t_data;
   if (pcl::io::loadPCDFile(fn_poses_, *keyposes_3d_) == -1 || pcl::io::loadPCDFile(fn_corner_, *corner_pc) == -1 ||
       pcl::io::loadPCDFile(fn_surf_, *surf_pc) == -1 || pcl::io::loadPCDFile(fn_outlier_, *outlier_pc) == -1)
   {
     ROS_ERROR("couldn't load pcd file");
     return false;
   }
-  auto end = std::chrono::system_clock::now();
-  std::chrono::duration<double> elapsed = end - start;
 
-  ROS_INFO("time: %f s ----> keyposes: %d, corner pc: %d, surf pc: %d, outlier pc: %d", elapsed.count(), keyposes_3d_->points.size(), corner_pc->points.size(), surf_pc->points.size(), outlier_pc->points.size());
+  ROS_INFO("time: %f s ----> keyposes: %d, corner pc: %d, surf pc: %d, outlier pc: %d", t_data.toc(), keyposes_3d_->points.size(), corner_pc->points.size(), surf_pc->points.size(), outlier_pc->points.size());
 
   kdtree_keyposes_3d_->setInputCloud(keyposes_3d_);
 
   corner_keyframes_.resize(keyposes_3d_->points.size());
   surf_keyframes_.resize(keyposes_3d_->points.size());
   outlier_keyframes_.resize(keyposes_3d_->points.size());
-  // std::fill(corner_keyframes_.begin(), corner_keyframes_.end(), pcl::PointCloud<PointType>::Ptr(new pcl::PointCloud<PointType>()));
-  // std::fill(surf_keyframes_.begin(), surf_keyframes_.end(), pcl::PointCloud<PointType>::Ptr(new pcl::PointCloud<PointType>()));
-  // std::fill(outlier_keyframes_.begin(), outlier_keyframes_.end(), pcl::PointCloud<PointType>::Ptr(new pcl::PointCloud<PointType>()));
   for (int i = 0; i < keyposes_3d_->points.size(); ++i)
   {
     corner_keyframes_[i] = pcl::PointCloud<PointType>::Ptr(new pcl::PointCloud<PointType>());
