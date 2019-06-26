@@ -61,7 +61,6 @@ public:
   LolLocalization(const LolLocalization &l) = delete;
 
   void run();
-  void odomThread();
 
 private:
   // 点云地图中 intensity 为 keypose 的 id
@@ -111,8 +110,8 @@ private:
   pcl::PointCloud<PointType>::Ptr laser_surf_ds_;
   pcl::PointCloud<PointType>::Ptr laser_outlier_ds_;
 
-  double time_laser_corner_, time_laser_surf_, time_laser_outlier_;
-  bool new_laser_corner_, new_laser_surf_, new_laser_outlier_, new_odom_;
+  double time_laser_corner_, time_laser_surf_, time_laser_outlier_, time_laser_odom_;
+  bool new_laser_corner_, new_laser_surf_, new_laser_outlier_, new_laser_odom_;
 
   // 一个 keypose 对应三种点云，点云在 vector 中的 index 由 keypose 在 keyposes_3d_ 中的 index 决定，点云已根据 keypose 转换到 global 坐标系中
   std::vector<pcl::PointCloud<PointType>::Ptr> corner_keyframes_;
@@ -131,6 +130,7 @@ private:
   std::vector<pcl::PointCloud<PointType>::Ptr> surround_surf_keyframes_;
   std::vector<pcl::PointCloud<PointType>::Ptr> surround_outlier_keyframes_;
   pcl::PointCloud<PointType>::Ptr pc_surround_keyposes_;
+  int batch_cnt;
 
   std::vector<int> point_search_idx_;
   std::vector<float> point_search_dist_;
@@ -153,10 +153,13 @@ private:
   float corner_leaf_, surf_leaf_, outlier_leaf_, surround_keyposes_leaf_;
   std::string fn_poses_, fn_corner_, fn_surf_, fn_outlier_;
   float target_update_dist_; // 与 target_center_ 偏移 target_update_dist_ 以上时更新局部 target map
+  int batch_size_;
 
   geometry_msgs::PoseStamped cur_laser_pose_, pre_laser_pose_;
   std::deque<geometry_msgs::PoseStamped> history_poses_;
   Eigen::Matrix4d tf_b2l_;
+  Eigen::Matrix4d tf_m2o_;
+  Eigen::Matrix4d tf_o2b_;
 
   std::mutex mtx_;
 
@@ -183,16 +186,6 @@ private:
    */
   void extractSurroundKeyFrames(const PointType &p);
 
-  /**
-   * @brief 对 source 点云降采样
-   * 
-   */
-  void downsampleCurrentScan();
-
-  void scanToMapRegistration();
-
-  void transformUpdate();
-
   void pointAssociateToMap(const PointType &p_in, PointType &p_out)
   {
     const Eigen::Vector3d out = R_tobe_ * Eigen::Vector3d(p_in.x, p_in.y, p_in.z) + T_tobe_;
@@ -201,6 +194,8 @@ private:
     p_out.z = out.z();
     p_out.intensity = p_in.intensity;
   }
+
+  void optimizeThread();
 };
 } // namespace localization
 
