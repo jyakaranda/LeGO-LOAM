@@ -16,6 +16,7 @@ int main(int argc, char **argv)
   ros::NodeHandle nh, pnh("~");
 
   localization::LolLocalization *lol = new localization::LolLocalization(std::shared_ptr<ros::NodeHandle>(&nh), std::shared_ptr<ros::NodeHandle>(&pnh));
+  std::thread opt_thread(&localization::LolLocalization::optimizeThread, lol);
   lol->run();
 
   ros::spin();

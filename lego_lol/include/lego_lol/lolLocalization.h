@@ -60,6 +60,8 @@ public:
   ~LolLocalization() {}
   LolLocalization(const LolLocalization &l) = delete;
 
+  void optimizeThread();
+
   void run();
 
 private:
@@ -91,6 +93,7 @@ private:
   ros::Publisher pub_surf_target_;
   ros::Publisher pub_corner_source_;
   ros::Publisher pub_surf_source_;
+  ros::Publisher pub_test_;
   tf::TransformBroadcaster tf_broadcaster_;
 
   ceres::Problem problem_;
@@ -130,7 +133,13 @@ private:
   std::vector<pcl::PointCloud<PointType>::Ptr> surround_surf_keyframes_;
   std::vector<pcl::PointCloud<PointType>::Ptr> surround_outlier_keyframes_;
   pcl::PointCloud<PointType>::Ptr pc_surround_keyposes_;
-  int batch_cnt;
+  int batch_cnt_;
+  PointCloudT::Ptr local_corner_;
+  PointCloudT::Ptr local_surf_;
+  PointCloudT::Ptr local_outlier_;
+
+  Eigen::Matrix4d tf_o2l_0_;
+  Eigen::Matrix4d tf_m2l_0_;
 
   std::vector<int> point_search_idx_;
   std::vector<float> point_search_dist_;
@@ -160,6 +169,7 @@ private:
   Eigen::Matrix4d tf_b2l_;
   Eigen::Matrix4d tf_m2o_;
   Eigen::Matrix4d tf_o2b_;
+  Eigen::Matrix4d tf_m2o_update_;
 
   std::mutex mtx_;
 
@@ -194,8 +204,6 @@ private:
     p_out.z = out.z();
     p_out.intensity = p_in.intensity;
   }
-
-  void optimizeThread();
 };
 } // namespace localization
 

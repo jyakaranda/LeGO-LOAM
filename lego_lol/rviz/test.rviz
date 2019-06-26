@@ -5,6 +5,8 @@ Panels:
     Property Tree Widget:
       Expanded:
         - /Global Options1
+        - /corner_target1
+        - /corner_target1/Status1
         - /surf_source1/Status1
       Splitter Ratio: 0.5
     Tree Height: 773
@@ -53,6 +55,8 @@ Visualization Manager:
       Frame Timeout: 15
       Frames:
         All Enabled: true
+        base_link:
+          Value: true
         laser:
           Value: true
         map:
@@ -67,8 +71,9 @@ Visualization Manager:
       Tree:
         map:
           odom:
-            laser:
-              {}
+            base_link:
+              laser:
+                {}
       Update Interval: 0
       Value: true
     - Class: rviz/Group
@@ -325,25 +330,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 26.5514221
+      Distance: 42.9635696
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.0599999987
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 8.63355637
-        Y: -10.0989084
-        Z: 0.214427933
+        X: -1.54296696
+        Y: 12.2544737
+        Z: -3.1923306
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.0500000007
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.00999999978
-      Pitch: 1.56979632
+      Pitch: 1.52979636
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 1.57032037
+      Yaw: 1.64531934
     Saved: ~
 Window Geometry:
   Displays:
