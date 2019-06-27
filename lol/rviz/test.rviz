@@ -25,7 +25,7 @@ Panels:
     Experimental: false
     Name: Time
     SyncMode: 0
-    SyncSource: ""
+    SyncSource: corner_target
 Visualization Manager:
   Class: ""
   Displays:
@@ -52,13 +52,25 @@ Visualization Manager:
       Frame Timeout: 15
       Frames:
         All Enabled: true
+        base_link:
+          Value: true
+        laser:
+          Value: true
+        map:
+          Value: true
+        odom:
+          Value: true
       Marker Scale: 5
       Name: TF
       Show Arrows: true
       Show Axes: true
       Show Names: true
       Tree:
-        {}
+        map:
+          odom:
+            base_link:
+              laser:
+                {}
       Update Interval: 0
       Value: true
     - Class: rviz/Group
@@ -204,9 +216,9 @@ Visualization Manager:
       Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
-      Max Intensity: 690
+      Max Intensity: 595
       Min Color: 0; 0; 0
-      Min Intensity: 0
+      Min Intensity: 200
       Name: surf_target
       Position Transformer: XYZ
       Queue Size: 10
@@ -234,9 +246,9 @@ Visualization Manager:
       Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
-      Max Intensity: 690
+      Max Intensity: 595
       Min Color: 0; 0; 0
-      Min Intensity: 0
+      Min Intensity: 200
       Name: corner_target
       Position Transformer: XYZ
       Queue Size: 10
@@ -309,9 +321,9 @@ Visualization Manager:
       Enabled: false
       Invert Rainbow: false
       Max Color: 255; 255; 255
-      Max Intensity: 15.1914997
+      Max Intensity: 15.1799002
       Min Color: 0; 0; 0
-      Min Intensity: 0.0214000009
+      Min Intensity: 0.0346999988
       Name: corner_source
       Position Transformer: XYZ
       Queue Size: 10
@@ -354,36 +366,6 @@ Visualization Manager:
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
-    - Alpha: 1
-      Autocompute Intensity Bounds: true
-      Autocompute Value Bounds:
-        Max Value: 10
-        Min Value: -10
-        Value: true
-      Axis: Z
-      Channel Name: intensity
-      Class: rviz/PointCloud2
-      Color: 255; 255; 255
-      Color Transformer: Intensity
-      Decay Time: 0
-      Enabled: false
-      Invert Rainbow: false
-      Max Color: 255; 255; 255
-      Max Intensity: 15.1973
-      Min Color: 0; 0; 0
-      Min Intensity: 0.00125000009
-      Name: test_pc
-      Position Transformer: XYZ
-      Queue Size: 10
-      Selectable: true
-      Size (Pixels): 3
-      Size (m): 0.100000001
-      Style: Flat Squares
-      Topic: /test_pc
-      Unreliable: false
-      Use Fixed Frame: true
-      Use rainbow: true
-      Value: false
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -409,23 +391,23 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 488.241211
+      Distance: 330.388458
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.0599999987
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: -20.5506783
-        Y: -64.7145691
-        Z: -142.579742
+        X: -7.87622738
+        Y: -71.1387711
+        Z: -3.10893655
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.0500000007
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.00999999978
       Pitch: 1.56979632
-      Target Frame: map
+      Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
       Yaw: 1.57070005
     Saved: ~
